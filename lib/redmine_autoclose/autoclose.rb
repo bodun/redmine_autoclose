@@ -59,7 +59,7 @@ module RedmineAutoclose
     def self.autoclose(use_logger: false)
       config = RedmineAutoclose::Config.new
       status_closed = config.closed_status
-      Mailer.with_synched_deliveries do
+      with_mail_delivery do
         enumerate_issues(config, use_logger) do |issue, _|
           log(use_logger, \
               "Autoclosing issue \##{issue.id} : #{issue.tracker.name} : #{issue.project.name} : (#{issue.subject})")
@@ -71,6 +71,16 @@ module RedmineAutoclose
             issue.save(validate: false)
           end
         end
+      end
+    end
+    # QME: queue notifications through the configured persistent ActiveJob backend (e.g. Sidekiq, with retries).
+    # Only the in-process Async adapter needs Redmine's synchronous wrapper; inline delivery lets one transient
+    # SMTP error abort the whole run once raise_delivery_errors is enabled.
+    def self.with_mail_delivery(&block)
+      if ActionMailer::MailDeliveryJob.queue_adapter.is_a?(ActiveJob::QueueAdapters::AsyncAdapter)
+        Mailer.with_synched_deliveries(&block)
+      else
+        yield
       end
     end
   end
